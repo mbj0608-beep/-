@@ -15,10 +15,11 @@ export const loadGame = (): GlobalSaveData => {
       const parsed = JSON.parse(saved);
       // Ensure missing achievements are added
       if (!parsed.achievements) parsed.achievements = INITIAL_ACHIEVEMENTS;
+      if (parsed.reincarnationCount === undefined) parsed.reincarnationCount = 0;
       return parsed;
     } catch (e) {
       console.error("Failed to load save", e);
     }
   }
-  return { talents: INITIAL_TALENTS, points: 0, achievements: INITIAL_ACHIEVEMENTS };
+  return { talents: INITIAL_TALENTS, points: 0, achievements: INITIAL_ACHIEVEMENTS, reincarnationCount: 0 };
 };

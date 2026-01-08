@@ -13,7 +13,9 @@ export const getRealmByFloor = (floor: number): Realm => {
 export const calculateInterest = (stones: number, talentLevel: number): number => {
   const baseCap = 50;
   const cap = baseCap + talentLevel * 50;
-  return Math.floor(Math.min(stones * 0.1, cap));
+  // 每50存款 = 1利息
+  const interest = Math.floor(stones / 50);
+  return Math.min(interest, cap);
 };
 
 export const calculateAlchemyCost = (count: number, talentLevel: number): number => {
@@ -22,16 +24,18 @@ export const calculateAlchemyCost = (count: number, talentLevel: number): number
 };
 
 export const generateMonster = (floor: number): Monster => {
-  const isBoss = floor % 30 === 0 || floor === 100;
-  const growthFactorHP = Math.pow(1.18, floor - 1);
-  const growthFactorATK = Math.pow(1.14, floor - 1);
+  const isBoss = floor % 30 === 0 || floor === 99;
+  // Steeper scaling for more challenge
+  const growthFactorHP = Math.pow(1.25, floor - 1);
+  const growthFactorATK = Math.pow(1.20, floor - 1);
 
-  let hp = Math.floor(120 * growthFactorHP);
-  let atk = Math.floor(18 * growthFactorATK);
+  // Higher base values for early game challenge
+  let hp = Math.floor(200 * growthFactorHP);
+  let atk = Math.floor(35 * growthFactorATK);
 
   if (isBoss) {
-    hp *= 2.8;
-    atk *= 2.2;
+    hp *= 3.5;
+    atk *= 3.0;
   }
 
   const name = isBoss 
@@ -44,7 +48,7 @@ export const generateMonster = (floor: number): Monster => {
 export const generatePills = (floor: number, forceImmortal: boolean): Pill[] => {
   const pills: Pill[] = [];
   const rarityPool = [Rarity.COMMON, Rarity.UNCOMMON, Rarity.RARE, Rarity.EPIC, Rarity.LEGENDARY];
-  const floorBonus = floor / 100;
+  const floorBonus = floor / 200; 
 
   for (let i = 0; i < 3; i++) {
     let rarity = Rarity.COMMON;
@@ -52,10 +56,10 @@ export const generatePills = (floor: number, forceImmortal: boolean): Pill[] => 
       rarity = Rarity.LEGENDARY;
     } else {
       const roll = Math.random() + floorBonus;
-      if (roll > 1.35) rarity = Rarity.LEGENDARY;
-      else if (roll > 1.15) rarity = Rarity.EPIC;
-      else if (roll > 0.85) rarity = Rarity.RARE;
-      else if (roll > 0.45) rarity = Rarity.UNCOMMON;
+      if (roll > 1.6) rarity = Rarity.LEGENDARY;
+      else if (roll > 1.35) rarity = Rarity.EPIC;
+      else if (roll > 1.05) rarity = Rarity.RARE;
+      else if (roll > 0.65) rarity = Rarity.UNCOMMON;
     }
 
     const mult = (rarityPool.indexOf(rarity) + 1) * 2;
@@ -67,43 +71,42 @@ export const generatePills = (floor: number, forceImmortal: boolean): Pill[] => 
       name: `${rarity}${selectedElement}纹丹`,
       rarity,
       color: RARITY_COLORS[rarity],
-      attributes: { [selectedAttr]: Math.floor((Math.random() * 4 + 2) * mult) },
-      elements: { [selectedElement.toLowerCase()]: Math.floor((Math.random() * 6 + 3) * mult) }
+      attributes: { [selectedAttr]: Math.floor((Math.random() * 5 + 3) * mult) },
+      elements: { [selectedElement.toLowerCase()]: Math.floor((Math.random() * 8 + 4) * mult) }
     });
   }
   return pills;
 };
 
 export const generateEquipment = (floor: number): Equipment | null => {
-  // 基础掉落率 15%，Boss 100%
-  const isBoss = floor % 30 === 0 || floor === 100;
+  const isBoss = floor % 30 === 0 || floor === 99;
   if (!isBoss && Math.random() > 0.15) return null;
 
   const slots = [EquipmentSlot.WEAPON, EquipmentSlot.ARMOR, EquipmentSlot.ACCESSORY];
   const slot = slots[Math.floor(Math.random() * 3)];
   
   const rarityPool = [Rarity.COMMON, Rarity.UNCOMMON, Rarity.RARE, Rarity.EPIC, Rarity.LEGENDARY];
-  const roll = Math.random() + (floor / 150);
+  const roll = Math.random() + (floor / 300);
   let rarity = Rarity.COMMON;
-  if (roll > 1.2) rarity = Rarity.LEGENDARY;
-  else if (roll > 0.9) rarity = Rarity.EPIC;
-  else if (roll > 0.6) rarity = Rarity.RARE;
-  else if (roll > 0.3) rarity = Rarity.UNCOMMON;
+  if (roll > 1.4) rarity = Rarity.LEGENDARY;
+  else if (roll > 1.1) rarity = Rarity.EPIC;
+  else if (roll > 0.8) rarity = Rarity.RARE;
+  else if (roll > 0.5) rarity = Rarity.UNCOMMON;
 
-  const mult = (rarityPool.indexOf(rarity) + 1) * 3;
+  const mult = (rarityPool.indexOf(rarity) + 1) * 4;
   const stats: Partial<Attributes> = {};
   
-  if (slot === EquipmentSlot.WEAPON) stats.essence = Math.floor(mult * (1 + floor * 0.1));
-  if (slot === EquipmentSlot.ARMOR) stats.physique = Math.floor(mult * (1 + floor * 0.1));
+  if (slot === EquipmentSlot.WEAPON) stats.essence = Math.floor(mult * (1 + floor * 0.15));
+  if (slot === EquipmentSlot.ARMOR) stats.physique = Math.floor(mult * (1 + floor * 0.15));
   if (slot === EquipmentSlot.ACCESSORY) {
-    stats.spirit = Math.floor(mult * 0.5);
-    stats.agility = Math.floor(mult * 0.5);
+    stats.spirit = Math.floor(mult * 0.7);
+    stats.agility = Math.floor(mult * 0.7);
   }
 
   const names = {
-    [EquipmentSlot.WEAPON]: ['生锈铁剑', '精钢长剑', '青芒剑', '斩妖巨剑', '诛仙绝剑'],
-    [EquipmentSlot.ARMOR]: ['粗布麻衣', '铁索甲', '玄龟甲', '乾坤法袍', '混元仙裳'],
-    [EquipmentSlot.ACCESSORY]: ['木质发簪', '白玉佩', '玲珑塔', '五行轮', '太极阴阳符']
+    [EquipmentSlot.WEAPON]: ['碎裂铁剑', '百炼精钢剑', '青玉长锋', '裂空巨剑', '太初诛仙剑'],
+    [EquipmentSlot.ARMOR]: ['破烂麻衣', '玄铁锁子甲', '灵犀甲', '虚无宝衣', '混沌御天裳'],
+    [EquipmentSlot.ACCESSORY]: ['粗木簪', '温润玉坠', '伏魔塔', '通天轮', '至尊乾坤佩']
   };
 
   const nameIndex = Math.min(rarityPool.indexOf(rarity), 4);

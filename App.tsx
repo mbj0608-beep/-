@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Player, Monster, Realm, Rarity, Pill, Attributes, FiveElements, CombatLog, RandomEvent, ElementType, EquipmentSlot, Equipment, Achievement, GlobalSaveData } from './types';
-import { INITIAL_TALENTS, RARITY_COLORS, ELEMENT_LABELS, INITIAL_ACHIEVEMENTS, INTRO_STORY } from './constants';
+import { INITIAL_TALENTS, RARITY_COLORS, ELEMENT_LABELS, INITIAL_ACHIEVEMENTS, INTRO_STORY, GET_FLOOR_STORY } from './constants';
 import { getRealmByFloor, calculateInterest, calculateAlchemyCost, generateMonster, generatePills, checkBonds, generateEquipment, getPlayerCombatStats } from './services/gameLogic';
 import { loadGame, saveGame } from './services/storage';
 
@@ -29,7 +29,7 @@ const StatItem: React.FC<{ icon: string; label: string; value: number; baseValue
     </div>
     <div className={`text-lg font-black leading-none ${color} flex items-baseline gap-1`}>
       {Math.floor(value)}
-      {value > baseValue && <span className="text-[10px] text-green-500 font-bold animate-pulse">+{Math.floor(value - baseValue)}</span>}
+      {value > baseValue && <span className="text-[10px] text-green-500 font-bold">+{Math.floor(value - baseValue)}</span>}
     </div>
   </div>
 );
@@ -62,13 +62,14 @@ const ElementBadge: React.FC<{ type: ElementType; value: number; active: boolean
 // --- Main Engine ---
 
 export default function App() {
-  const [view, setView] = useState<'start' | 'intro' | 'main' | 'alchemy' | 'reincarnation' | 'event' | 'achievements'>('start');
+  const [view, setView] = useState<'start' | 'intro' | 'main' | 'alchemy' | 'reincarnation' | 'event' | 'achievements' | 'story'>('start');
   const [player, setPlayer] = useState<Player | null>(null);
   const [monster, setMonster] = useState<Monster | null>(null);
   const [logs, setLogs] = useState<CombatLog[]>([]);
   const [currentPills, setCurrentPills] = useState<Pill[]>([]);
   const [activeEvent, setActiveEvent] = useState<RandomEvent | null>(null);
   const [globalData, setGlobalData] = useState<GlobalSaveData>(loadGame());
+  const [currentStoryText, setCurrentStoryText] = useState("");
   
   const [shake, setShake] = useState(false);
   const [flash, setFlash] = useState(false);
@@ -77,7 +78,6 @@ export default function App() {
   const [showDrop, setShowDrop] = useState<Equipment | null>(null);
   const [introIndex, setIntroIndex] = useState(0);
 
-  // Wrap addLog in useCallback to ensure stability in dependency arrays
   const addLog = useCallback((text: string, type: CombatLog['type'] = 'system') => {
     setLogs(prev => [{ id: Math.random().toString(), text, type }, ...prev].slice(0, 18));
   }, []);
@@ -89,9 +89,15 @@ export default function App() {
       let unlocked = false;
       if (ach.id === 'first_pill' && p.totalAlchemyCount > 0) unlocked = true;
       if (ach.id === 'floor_10' && p.floor >= 10) unlocked = true;
+      if (ach.id === 'floor_30' && p.floor >= 30) unlocked = true;
+      if (ach.id === 'floor_60' && p.floor >= 60) unlocked = true;
+      if (ach.id === 'floor_99' && p.floor >= 99) unlocked = true;
       if (ach.id === 'rich_man' && p.stones >= 1000) unlocked = true;
+      if (ach.id === 'millionaire' && p.stones >= 5000) unlocked = true;
       if (ach.id === 'alchemy_master' && p.totalAlchemyCount >= 20) unlocked = true;
-      if (ach.id === 'immortal' && p.floor >= 50) unlocked = true;
+      if (ach.id === 'alchemy_god' && p.totalAlchemyCount >= 100) unlocked = true;
+      if (ach.id === 'reincarnate_5' && globalData.reincarnationCount >= 5) unlocked = true;
+      if (ach.id === 'immortal_weapon' && p.equipment[EquipmentSlot.WEAPON]?.rarity === Rarity.LEGENDARY) unlocked = true;
       
       if (unlocked) {
         changed = true;
@@ -108,7 +114,7 @@ export default function App() {
         return next;
       });
     }
-  }, [globalData.achievements, addLog]);
+  }, [globalData.achievements, globalData.reincarnationCount, addLog]);
 
   const triggerPop = (val: number, crit: boolean) => {
     const id = Date.now();
@@ -118,10 +124,10 @@ export default function App() {
 
   const initGame = () => {
     const baseAttrs = {
-      physique: 25 + globalData.talents.baseAttributes * 5,
-      essence: 18 + globalData.talents.baseAttributes * 2,
-      spirit: 12 + globalData.talents.baseAttributes * 2,
-      agility: 12 + globalData.talents.baseAttributes * 2,
+      physique: 20 + globalData.talents.baseAttributes * 5,
+      essence: 15 + globalData.talents.baseAttributes * 2,
+      spirit: 10 + globalData.talents.baseAttributes * 2,
+      agility: 10 + globalData.talents.baseAttributes * 2,
     };
     
     const p: Player = {
@@ -137,7 +143,8 @@ export default function App() {
       talents: globalData.talents,
       reincarnationPoints: globalData.points,
       tutorialStep: 0,
-      totalAlchemyCount: 0
+      totalAlchemyCount: 0,
+      reincarnationCount: globalData.reincarnationCount
     };
 
     setPlayer(p);
@@ -147,12 +154,11 @@ export default function App() {
     setView('main');
   };
 
-  // Define handleDeath to manage player defeat and reincarnation logic
   const handleDeath = useCallback(() => {
     if (!player) return;
     const pointsEarned = Math.floor(player.floor * 5 + player.totalAlchemyCount * 2);
     setGlobalData(prev => {
-      const next = { ...prev, points: prev.points + pointsEarned };
+      const next = { ...prev, points: prev.points + pointsEarned, reincarnationCount: prev.reincarnationCount + 1 };
       saveGame(next);
       return next;
     });
@@ -162,7 +168,7 @@ export default function App() {
 
   const handleHeal = useCallback(() => {
     if (!player) return;
-    const healCost = 20 + Math.floor(player.floor / 2);
+    const healCost = 200; 
     
     if (player.tutorialStep === 2) {
       setPlayer(prev => prev ? { ...prev, tutorialStep: 3 } : null);
@@ -186,6 +192,83 @@ export default function App() {
     checkAchievements(p);
   }, [player, checkAchievements, addLog]);
 
+  const triggerEvent = (customPlayer?: Player) => {
+    const activeP = customPlayer || player;
+    if (!activeP) return;
+
+    const pool: RandomEvent[] = [
+      {
+        title: '【盲眼琴师】',
+        description: '一名琴师在台阶旁独奏，他问你：‘你修仙是为了谁？’',
+        options: [
+          { 
+            label: '为了苍生 (+15神识，-20%灵石)', 
+            action: (p) => {
+              const stoneLoss = Math.floor(p.stones * 0.2);
+              return { player: { ...p, stones: p.stones - stoneLoss, attributes: { ...p.attributes, spirit: p.attributes.spirit + 15 } }, message: '琴声入魂，你的神识前所未有的清澈。' };
+            }
+          },
+          { 
+            label: '为了自己 (+15真元，-20%闪避)', 
+            action: (p) => ({ player: { ...p, attributes: { ...p.attributes, essence: p.attributes.essence + 15, agility: Math.max(0, p.attributes.agility - 10) } }, message: '你坚定道心，真元激荡。' }) 
+          }
+        ]
+      },
+      {
+        title: '【因果磨盘】',
+        description: '巨大的石磨在虚空中旋转，吞噬着破碎的魂魄。',
+        options: [
+          { 
+            label: '投身磨炼 (+20体魄，扣除50%当前HP)', 
+            action: (p) => {
+              const dmg = Math.floor(p.hp * 0.5);
+              const nextP = { ...p, hp: Math.max(1, p.hp - dmg), attributes: { ...p.attributes, physique: p.attributes.physique + 20 } };
+              nextP.maxHp = nextP.attributes.physique * 20;
+              return { player: nextP, message: '肉身被反复碾碎重组，愈发坚韧。' };
+            }
+          },
+          { label: '绕道而行 (+5身法)', action: (p) => ({ player: { ...p, attributes: { ...p.attributes, agility: p.attributes.agility + 5 } }, message: '你谨慎地避开了因果的碾压。' }) }
+        ]
+      },
+      {
+        title: '【天降异火】',
+        description: '一团混沌火焰从虚空坠落，落在你必经之路上。',
+        options: [
+          { 
+            label: '强行吸收 (+15火灵，-50灵石)', 
+            action: (p) => {
+              if (p.stones < 50) return { player: p, message: '灵石不足，无法压制异火，只能避开。' };
+              return { player: { ...p, stones: p.stones - 50, elements: { ...p.elements, fire: p.elements.fire + 15 } }, message: '你以重金构筑法阵，成功炼化了异火。' };
+            }
+          },
+          { label: '引水灌溉 (+10水灵，-30当前HP)', action: (p) => ({ player: { ...p, hp: Math.max(1, p.hp - 30), elements: { ...p.elements, water: p.elements.water + 10 } }, message: '火势熄灭，留下了纯净的水精。' }) }
+        ]
+      },
+      {
+        title: '【路遇仙冢】',
+        description: '一座无名孤冢横在路中央，墓碑刻着：‘此生无憾，唯憾未登顶。’',
+        options: [
+          { label: '叩首拜祭 (+10全五行，-50灵石)', action: (p) => {
+            if (p.stones < 50) return { player: p, message: '你两袖清风，唯有以此心祭奠。' };
+            const nextE = { ...p.elements };
+            Object.keys(nextE).forEach(k => (nextE as any)[k] += 10);
+            return { player: { ...p, stones: p.stones - 50, elements: nextE }, message: '前辈遗泽感召，五行平衡流转。' };
+          }},
+          { label: '摸金掘宝 (+1件随机装备，全属性-5)', action: (p) => {
+            const drop = generateEquipment(p.floor);
+            const nextAttrs = { ...p.attributes };
+            Object.keys(nextAttrs).forEach(k => (nextAttrs as any)[k] = Math.max(0, (nextAttrs as any)[k] - 5));
+            const nextP = { ...p, attributes: nextAttrs };
+            if (drop) nextP.equipment[drop.slot] = drop;
+            return { player: nextP, message: '你挖出了残存法宝，但也沾染了死气。' };
+          }}
+        ]
+      }
+    ];
+    setActiveEvent(pool[Math.floor(Math.random() * pool.length)]);
+    setView('event');
+  };
+
   const handleCombat = useCallback(() => {
     if (!player || !monster) return;
 
@@ -194,16 +277,13 @@ export default function App() {
     const combatStatsLocal = getPlayerCombatStats(p);
     const bonds = checkBonds(p.elements);
 
+    // 新手引导逻辑
     if (p.tutorialStep === 1) p.tutorialStep = 2;
-
-    const triggerShake = () => {
-      setShake(true);
-      setTimeout(() => setShake(false), 200);
-    };
-    const triggerFlash = () => {
-      setFlash(true);
-      setTimeout(() => setFlash(false), 100);
-    };
+    if (p.tutorialStep === 3) {
+       // 当玩家已进行到利息教学，并完成一次战斗（推进一层），视为已掌握，关闭引导
+       setDismissTutorial(true);
+       p.tutorialStep = 4;
+    }
 
     const executePlayerTurn = () => {
       let dmg = combatStatsLocal.essence * 5;
@@ -214,16 +294,16 @@ export default function App() {
       if (bonds.fire) totalDmg += Math.floor(m.maxHp * 0.05);
       m.hp -= totalDmg;
       triggerPop(totalDmg, isCrit);
-      addLog(`你施展神通，造成了 ${totalDmg} 点伤害${isCrit ? '！(暴击)' : ''}`, isCrit ? 'critical' : 'player');
-      if (isCrit) triggerShake();
+      addLog(`造成 ${totalDmg} 伤害${isCrit ? '！(暴击)' : ''}`, isCrit ? 'critical' : 'player');
+      if (isCrit) { setShake(true); setTimeout(() => setShake(false), 200); }
     };
 
     const executeMonsterTurn = () => {
       if (m.hp <= 0) return;
       let mDmg = Math.floor(m.atk * (bonds.earth ? 0.75 : 1));
       p.hp -= mDmg;
-      addLog(`${m.name} 反击，你损耗了 ${mDmg} 点气血`, 'monster');
-      triggerFlash();
+      addLog(`${m.name} 反击，损耗 ${mDmg} 气血`, 'monster');
+      setFlash(true); setTimeout(() => setFlash(false), 100);
     };
 
     executePlayerTurn();
@@ -231,31 +311,29 @@ export default function App() {
 
     if (m.hp <= 0) {
       const reward = 50 + p.floor * 5;
-      p.stones += reward + calculateInterest(p.stones, p.talents.interestCap);
-      p.hp = Math.min(p.maxHp, p.hp + Math.floor(p.maxHp * 0.15));
+      const interest = calculateInterest(p.stones, p.talents.interestCap);
+      p.stones += reward + interest;
+      p.hp = Math.min(p.maxHp, p.hp + Math.floor(p.maxHp * 0.1));
+      
       const drop = generateEquipment(p.floor);
       if (drop) { 
         p.equipment[drop.slot] = drop; 
-        addLog(`【至宝出世】 ${drop.name}！`, 'drop'); 
+        addLog(`【异宝】获得 ${drop.name}！`, 'drop'); 
         setShowDrop(drop); 
       }
       
-      if (m.isBoss) {
-        const nextAch = globalData.achievements.map(ach => 
-          ach.id === 'boss_slayer' ? { ...ach, unlocked: true } : ach
-        );
-        setGlobalData(prev => ({ ...prev, achievements: nextAch }));
-      }
-
-      p.floor += 1;
+      const nextFloor = p.floor + 1;
+      p.floor = nextFloor;
       p.alchemyCount = 0; 
+      
       setPlayer(p);
-      setMonster(generateMonster(p.floor));
-      addLog(`胜局！晋升至第 ${p.floor} 层。`, 'system');
+      setMonster(generateMonster(nextFloor));
+      addLog(`胜局！晋升至第 ${nextFloor} 层。`, 'system');
       checkAchievements(p);
-
-      // Higher event chance: 35%
-      if (Math.random() < 0.35) triggerEvent();
+      
+      // 触发层级剧情
+      setCurrentStoryText(GET_FLOOR_STORY(nextFloor));
+      setView('story');
     } else if (p.hp <= 0) {
       handleDeath();
     } else {
@@ -263,42 +341,6 @@ export default function App() {
       setMonster(m);
     }
   }, [player, monster, globalData.achievements, checkAchievements, addLog, handleDeath]);
-
-  const triggerEvent = () => {
-    const pool: RandomEvent[] = [
-      {
-        title: '【仙界残影】',
-        description: '你在一处废墟中发现了一缕残存的仙气，似乎可以洗练骨骼。',
-        options: [
-          { 
-            label: '全力炼化', 
-            action: (p) => {
-              const success = Math.random() > 0.3;
-              if (success) return { player: { ...p, attributes: { ...p.attributes, physique: p.attributes.physique + 10 } }, message: '炼化成功，体魄增强了！' };
-              return { player: { ...p, hp: Math.floor(p.hp * 0.5) }, message: '气劲暴走，你经脉受损！' };
-            }
-          },
-          { label: '稳妥起见', action: (p) => ({ player: p, message: '你决定无视这危险的诱惑。' }) }
-        ]
-      },
-      {
-        title: '【神秘商人】',
-        description: '商人递出一张符纸：“此乃【缩地符】，可直升 3 层，只需 120 灵石。”',
-        options: [
-          { 
-            label: '重金购入', 
-            action: (p) => {
-              if (p.stones < 120) return { player: p, message: '灵石不足，商人不悦地离开了。' };
-              return { player: { ...p, stones: p.stones - 120, floor: p.floor + 3 }, message: '你使用了符咒，身形一晃便跨越了三层！' };
-            }
-          },
-          { label: '不为所动', action: (p) => ({ player: p, message: '你决定脚踏实地。' }) }
-        ]
-      }
-    ];
-    setActiveEvent(pool[Math.floor(Math.random() * pool.length)]);
-    setView('event');
-  };
 
   const handleAlchemy = useCallback(() => {
     if (!player) return;
@@ -336,10 +378,9 @@ export default function App() {
     Object.entries(pill.attributes).forEach(([k, v]) => p.attributes[k as keyof Attributes] += v);
     Object.entries(pill.elements).forEach(([k, v]) => p.elements[k as keyof FiveElements] += v);
     p.maxHp = p.attributes.physique * 20;
-    p.hp = Math.min(p.maxHp, p.hp + Math.floor(p.maxHp * 0.4));
     setPlayer(p);
     setView('main');
-    addLog(`药力灌体，修行一日千里！`, 'system');
+    addLog(`药力灌体，修行大增！`, 'system');
     checkAchievements(p);
   };
 
@@ -353,28 +394,32 @@ export default function App() {
     });
   };
 
-  // Calculate combat stats for UI rendering
   const combatStats = player ? getPlayerCombatStats(player) : null;
+  const unlockedAchievementCount = globalData.achievements.filter(a => a.unlocked).length;
 
   // --- Render Layouts ---
 
   if (view === 'start') {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center p-6 text-center z-50 relative">
-        <div className="mb-2 text-gold-500 text-8xl font-black tracking-[0.4em] text-glow animate-pulse drop-shadow-2xl">万古轮回</div>
-        <div className="text-stone-400 text-sm tracking-[0.6em] mb-16 opacity-60 uppercase font-bold">Eternal Reincarnation</div>
-        <div className="flex gap-6">
+      <div className="h-screen w-screen flex flex-col items-center justify-center p-6 text-center z-50 relative overflow-hidden bg-stone-950">
+        <div className="absolute top-10 right-10 flex flex-col items-end opacity-60">
+           <span className="text-yellow-600 text-[10px] font-black uppercase tracking-widest">累计轮回</span>
+           <span className="text-stone-300 text-3xl font-black">{globalData.reincarnationCount}</span>
+        </div>
+        <div className="mb-2 text-yellow-500 text-8xl font-black tracking-[0.4em] text-glow select-none">万古轮回</div>
+        <div className="text-stone-400 text-sm tracking-[0.6em] mb-16 opacity-60 uppercase font-bold tracking-widest">Eternal Reincarnation</div>
+        <div className="flex gap-6 z-[100]">
           <button 
             onClick={() => setView('intro')}
-            className="group relative px-20 py-6 bg-stone-900 border-2 border-yellow-600 text-yellow-500 rounded-full font-black text-3xl hover:bg-yellow-900/40 transition-all shadow-2xl hover:scale-105 active:scale-95 cursor-pointer z-[100]"
+            className="px-20 py-6 bg-stone-900 border-2 border-yellow-600 text-yellow-500 rounded-full font-black text-3xl hover:bg-yellow-600 hover:text-black transition-all shadow-2xl active:scale-95 cursor-pointer"
           >
-            <span className="relative z-10">启 程</span>
+            启 程
           </button>
           <button 
             onClick={() => setView('achievements')}
-            className="px-10 py-6 bg-stone-800 border-2 border-stone-700 text-stone-300 rounded-full font-black text-xl hover:bg-stone-700 transition-all cursor-pointer z-[100]"
+            className="px-10 py-6 bg-stone-800 border-2 border-stone-700 text-stone-300 rounded-full font-black text-xl hover:bg-stone-700 transition-all cursor-pointer shadow-lg active:scale-95"
           >
-            成就
+            成就 ({unlockedAchievementCount})
           </button>
         </div>
       </div>
@@ -384,12 +429,10 @@ export default function App() {
   if (view === 'intro') {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-black p-12 text-center relative z-50 overflow-hidden">
-        <div className="max-w-2xl animate-in fade-in slide-in-from-bottom-8 duration-1000">
+        <div className="max-w-2xl">
           <p className="text-yellow-500/80 text-lg mb-8 tracking-[0.2em] font-black uppercase">卷首语</p>
-          <div className="h-48 flex items-center justify-center">
-             <p className="text-stone-200 text-2xl leading-relaxed italic font-bold tracking-wide transition-all duration-700">
-               {INTRO_STORY[introIndex]}
-             </p>
+          <div className="h-48 flex items-center justify-center text-stone-200 text-2xl leading-relaxed italic font-bold tracking-wide">
+             {INTRO_STORY[introIndex]}
           </div>
           <div className="mt-16 flex flex-col items-center gap-6">
             <div className="flex gap-2">
@@ -400,19 +443,46 @@ export default function App() {
             {introIndex < INTRO_STORY.length - 1 ? (
               <button 
                 onClick={() => setIntroIndex(introIndex + 1)}
-                className="px-12 py-4 bg-stone-900 border border-stone-700 text-stone-300 rounded-full hover:bg-stone-800 transition-all font-black tracking-widest"
+                className="px-12 py-4 bg-stone-900 border border-stone-700 text-stone-300 rounded-full hover:bg-stone-800 transition-all font-black tracking-widest cursor-pointer active:scale-95"
               >
                 继续阅读
               </button>
             ) : (
               <button 
                 onClick={initGame}
-                className="px-16 py-5 bg-yellow-900 border-2 border-yellow-500 text-yellow-500 rounded-full hover:bg-yellow-800 transition-all font-black text-2xl tracking-[0.3em] animate-pulse shadow-glow"
+                className="px-16 py-5 bg-yellow-900 border-2 border-yellow-500 text-yellow-500 rounded-full hover:bg-yellow-800 transition-all font-black text-2xl tracking-[0.3em] shadow-glow cursor-pointer active:scale-95"
               >
                 踏入轮回
               </button>
             )}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Story Modal ---
+  if (view === 'story') {
+    return (
+      <div className="fixed inset-0 bg-black/98 flex items-center justify-center p-8 z-[5000] animate-in fade-in duration-700">
+        <div className="max-w-xl text-center space-y-12">
+           <div className="text-yellow-600 text-xs font-black uppercase tracking-[0.8em]">天阶往事：第 {player?.floor} 层</div>
+           <p className="text-stone-100 text-3xl leading-relaxed italic font-bold filter drop-shadow-md animate-in slide-in-from-bottom-4 duration-1000">
+             “ {currentStoryText} ”
+           </p>
+           <button 
+             onClick={() => {
+               // 概率触发后续随机事件
+               if (Math.random() < 0.45) {
+                  triggerEvent();
+               } else {
+                  setView('main');
+               }
+             }}
+             className="px-16 py-4 bg-stone-900 border border-stone-800 text-stone-400 rounded-full hover:bg-stone-800 hover:text-stone-200 transition-all font-black tracking-widest text-sm cursor-pointer"
+           >
+             踏入下一阶
+           </button>
         </div>
       </div>
     );
@@ -435,7 +505,7 @@ export default function App() {
             </div>
           ))}
         </div>
-        <button onClick={() => setView('start')} className="mt-16 px-16 py-5 bg-stone-800 text-stone-200 rounded-full font-black text-xl hover:bg-stone-700 transition-all">返回</button>
+        <button onClick={() => setView('start')} className="mt-16 px-16 py-5 bg-stone-800 text-stone-200 rounded-full font-black text-xl hover:bg-stone-700 transition-all cursor-pointer">返回</button>
       </div>
     );
   }
@@ -452,9 +522,9 @@ export default function App() {
           <div className="space-y-6">
             {[
               { key: 'baseAttributes', name: '重塑灵根', desc: '提升初始属性' },
-              { key: 'interestCap', name: '聚宝盆', desc: '提高每层灵石收益' },
-              { key: 'alchemyEfficiency', name: '丹道道果', desc: '减缓炼丹消耗' },
-              { key: 'inheritanceRate', name: '因果继承', desc: '增强每一世的传承' },
+              { key: 'interestCap', name: '聚宝盆', desc: '提高每层灵石收益上限' },
+              { key: 'alchemyEfficiency', name: '丹道道果', desc: '减缓炼丹灵石消耗' },
+              { key: 'inheritanceRate', name: '因果继承', desc: '增强每一世的传承力量' },
             ].map((t) => (
               <div key={t.key} className="flex justify-between items-center p-6 bg-black/50 rounded-[2rem] border border-stone-800 hover:border-yellow-700/50 transition-all group">
                 <div className="flex-1">
@@ -486,17 +556,22 @@ export default function App() {
       {/* Top HUD */}
       <div className="px-10 py-6 bg-stone-900/95 border-b-2 border-stone-800/50 flex justify-between items-center z-50 shadow-2xl backdrop-blur-md">
         <div className="flex-1 flex items-center gap-6">
-          <div className="w-20 h-20 rounded-full border-4 border-yellow-600/60 bg-stone-950 flex items-center justify-center text-[10px] font-black text-yellow-500 shadow-glow">
-             <span className="text-center leading-[1.2] px-2">{getRealmByFloor(player?.floor || 1)}</span>
+          <div 
+            onClick={() => setView('achievements')}
+            className="w-20 h-20 rounded-full border-4 border-yellow-600/60 bg-stone-950 flex flex-col items-center justify-center cursor-pointer shadow-glow hover:scale-105 active:scale-95 transition-all group"
+          >
+             <span className="text-[10px] font-black text-stone-500 uppercase group-hover:text-yellow-500 transition-colors">成就</span>
+             <span className="text-yellow-500 text-lg font-black">{unlockedAchievementCount}</span>
           </div>
           <div className="w-64">
             <ProgressBar value={player?.hp || 0} max={player?.maxHp || 1} color="bg-gradient-to-r from-red-900 via-red-600 to-red-400" label={`气血: ${Math.floor(player?.hp || 0)}`} height="h-4" />
-            <div className="mt-2 opacity-90"><ProgressBar value={player?.floor || 0} max={100} color="bg-sky-900" label={`登天阶进度`} height="h-2" /></div>
+            <div className="mt-2 opacity-90"><ProgressBar value={player?.floor || 0} max={99} color="bg-sky-900" label={`登天阶进度`} height="h-2" /></div>
           </div>
         </div>
-        <div className="flex flex-col items-center">
+        <div className="flex flex-col items-center relative">
            <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-50 via-yellow-500 to-yellow-950 tracking-tighter drop-shadow-[0_0_20px_rgba(234,179,8,0.5)]">{player?.floor}</div>
            <span className="text-[11px] text-stone-600 font-black tracking-[0.5em] uppercase -mt-2 opacity-80">层 天 阶</span>
+           <div className="absolute -top-4 right-[-50px] text-[10px] text-yellow-700 font-black italic whitespace-nowrap">轮回 {globalData.reincarnationCount}</div>
         </div>
         <div className="flex-1 flex flex-col items-end">
           <div className="flex items-center gap-3">
@@ -590,12 +665,11 @@ export default function App() {
                {player.tutorialStep === 0 && "【炼丹】乃立身之本，先炼制一枚仙丹！"}
                {player.tutorialStep === 1 && "丹道初成，速去【挑战】登天阶！"}
                {player.tutorialStep === 2 && "受伤后点击【调息】，灵石可救命！"}
-               {player.tutorialStep === 3 && "利息随层级暴涨，财法并举方可登仙。"}
+               {player.tutorialStep === 3 && "利息随存款增加，财法并举方可登仙。"}
              </span>
            </div>
         )}
 
-        {/* BOTTOM PROCESS BAR: Prominent Progress Indicator */}
         <div className="absolute -top-6 left-0 right-0 px-20">
            <div className="h-2 bg-stone-800 rounded-full border border-stone-700 overflow-hidden shadow-glow-sm">
               <div 
@@ -613,16 +687,16 @@ export default function App() {
         <div className="max-w-5xl mx-auto grid grid-cols-4 gap-10 items-center h-24">
           <button 
             onClick={handleHeal}
-            className={`h-full rounded-3xl bg-stone-800 border-2 border-stone-700 flex flex-col items-center justify-center transition-all hover:bg-stone-700 active:scale-90 group cursor-pointer shadow-lg ${player && player.tutorialStep === 2 ? 'ring-4 ring-red-500 animate-pulse' : ''}`}
+            className={`h-full rounded-3xl bg-stone-800 border-2 border-stone-700 flex flex-col items-center justify-center transition-all hover:bg-stone-700 active:scale-90 group cursor-pointer shadow-lg ${player && player.tutorialStep === 2 ? 'ring-4 ring-red-500' : ''}`}
           >
             <span className="text-3xl mb-1 group-hover:scale-110 transition-transform">🧘</span>
             <span className="text-[11px] font-black uppercase text-stone-300">调息疗伤</span>
-            <span className="text-[10px] text-yellow-500 font-black">💰 {20 + Math.floor((player?.floor || 0)/2)}</span>
+            <span className="text-[10px] text-yellow-500 font-black">💰 200</span>
           </button>
 
           <button 
             onClick={handleAlchemy}
-            className={`h-28 -mt-12 rounded-[2.5rem] bg-gradient-to-br from-yellow-500 via-yellow-700 to-yellow-900 border-2 border-yellow-300 flex flex-col items-center justify-center shadow-2xl group active:scale-90 transition-all cursor-pointer relative ${player?.tutorialStep === 0 ? 'ring-8 ring-white/50 animate-pulse' : ''}`}
+            className={`h-28 -mt-12 rounded-[2.5rem] bg-gradient-to-br from-yellow-500 via-yellow-700 to-yellow-900 border-2 border-yellow-300 flex flex-col items-center justify-center shadow-2xl group active:scale-90 transition-all cursor-pointer relative ${player?.tutorialStep === 0 ? 'ring-8 ring-white/50' : ''}`}
           >
             <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
             <span className="text-5xl mb-1 group-hover:rotate-12 transition-transform drop-shadow-lg">🏺</span>
@@ -632,7 +706,7 @@ export default function App() {
 
           <button 
             onClick={handleCombat}
-            className={`h-28 -mt-12 rounded-[2.5rem] bg-gradient-to-br from-stone-700 via-stone-800 to-stone-950 border-2 border-stone-500 flex flex-col items-center justify-center shadow-2xl group active:scale-90 transition-all cursor-pointer relative ${player?.tutorialStep === 1 ? 'ring-8 ring-yellow-500/50 animate-pulse' : ''}`}
+            className={`h-28 -mt-12 rounded-[2.5rem] bg-gradient-to-br from-stone-700 via-stone-800 to-stone-950 border-2 border-stone-500 flex flex-col items-center justify-center shadow-2xl group active:scale-90 transition-all cursor-pointer relative ${player?.tutorialStep === 1 ? 'ring-8 ring-yellow-500/50' : ''}`}
           >
             <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
             <span className="text-5xl mb-1 group-hover:translate-y-[-5px] transition-transform drop-shadow-lg">⚔️</span>
@@ -650,26 +724,26 @@ export default function App() {
         </div>
       </div>
 
-      {/* MODAL: EQUIPMENT DROP (Enhanced Visual) */}
+      {/* MODAL: EQUIPMENT DROP */}
       {showDrop && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[4000] animate-in fade-in duration-500">
-           <div className="bg-stone-900 border-4 border-yellow-600 rounded-[3rem] p-12 w-full max-w-md text-center shadow-gold animate-in zoom-in duration-300">
+           <div className="bg-stone-900 border-4 border-yellow-600 rounded-[3rem] p-12 w-full max-md text-center shadow-gold animate-in zoom-in duration-300">
               <p className="text-yellow-500 text-sm font-black uppercase tracking-[0.4em] mb-4">天 降 异 宝</p>
-              <div className="text-8xl mb-8 animate-bounce filter drop-shadow-[0_0_20px_rgba(255,255,255,0.4)]">
+              <div className="text-8xl mb-8 animate-bounce">
                  {showDrop.slot === EquipmentSlot.WEAPON ? '🗡️' : showDrop.slot === EquipmentSlot.ARMOR ? '🧥' : '💍'}
               </div>
               <h3 className="text-3xl font-black mb-2" style={{ color: showDrop.color }}>{showDrop.name}</h3>
               <p className="text-stone-500 font-black uppercase tracking-widest text-xs mb-8">{showDrop.rarity} · {showDrop.slot}</p>
-              <div className="bg-black/40 p-6 rounded-2xl border border-stone-800 mb-10">
+              <div className="bg-black/40 p-6 rounded-2xl border border-stone-800 mb-10 text-left">
                  {Object.entries(showDrop.stats).map(([k, v]) => (
                    <div key={k} className="text-stone-300 font-bold">
-                     属性强化: {k === 'physique' ? '体魄' : k === 'essence' ? '真元' : k === 'spirit' ? '神识' : '身法'} <span className="text-green-400">+{v}</span>
+                     ◈ {k === 'physique' ? '体魄' : k === 'essence' ? '真元' : k === 'spirit' ? '神识' : '身法'} <span className="text-green-400">+{v}</span>
                    </div>
                  ))}
               </div>
               <button 
                 onClick={() => setShowDrop(null)}
-                className="w-full py-5 bg-yellow-600 text-black font-black text-xl rounded-full hover:bg-yellow-500 active:scale-95 transition-all shadow-glow"
+                className="w-full py-5 bg-yellow-600 text-black font-black text-xl rounded-full hover:bg-yellow-500 active:scale-95 transition-all cursor-pointer shadow-glow"
               >
                 收纳法宝
               </button>
@@ -679,7 +753,7 @@ export default function App() {
 
       {/* Modals: Alchemy/Event */}
       {view === 'alchemy' && (
-        <div className="fixed inset-0 bg-black/98 backdrop-blur-3xl flex items-center justify-center p-8 z-[3000] animate-in fade-in zoom-in duration-300">
+        <div className="fixed inset-0 bg-black/98 backdrop-blur-3xl flex items-center justify-center p-8 z-[3000] animate-in fade-in duration-300">
           <div className="bg-stone-900 border-2 border-yellow-600 rounded-[4rem] p-12 w-full max-w-xl text-center shadow-gold">
             <div className="text-4xl font-black text-yellow-500 mb-12 tracking-[0.5em] flex items-center justify-center gap-6">✦ 丹 成 天 象 ✦</div>
             <div className="space-y-6">

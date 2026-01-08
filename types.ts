@@ -72,6 +72,7 @@ export interface GlobalSaveData {
   talents: Talents;
   points: number;
   achievements: Achievement[];
+  reincarnationCount: number;
 }
 
 export interface Player {
@@ -92,6 +93,7 @@ export interface Player {
   reincarnationPoints: number;
   tutorialStep: number;
   totalAlchemyCount: number;
+  reincarnationCount: number;
 }
 
 export interface Monster {
